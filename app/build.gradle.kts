@@ -8,21 +8,44 @@ android {
     namespace = "com.lichviec.app"
     compileSdk = 35
 
+    val fixedKeystoreFile = file("lichviec-release.jks")
+    val hasFixedKeystore = fixedKeystoreFile.exists()
+    val buildNum = System.getenv("BUILD_VERSION_CODE")?.toIntOrNull() ?: 1
+
     defaultConfig {
         applicationId = "com.lichviec.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = buildNum
+        versionName = "1.0.$buildNum"
 
         vectorDrawables {
             useSupportLibrary = true
         }
     }
 
+    signingConfigs {
+        if (hasFixedKeystore) {
+            create("fixed") {
+                storeFile = fixedKeystoreFile
+                storePassword = System.getenv("KEYSTORE_PASSWORD")?.takeIf { it.isNotBlank() } ?: "lichviec2026"
+                keyAlias = System.getenv("KEY_ALIAS")?.takeIf { it.isNotBlank() } ?: "lichviec"
+                keyPassword = System.getenv("KEY_PASSWORD")?.takeIf { it.isNotBlank() } ?: "lichviec2026"
+            }
+        }
+    }
+
     buildTypes {
+        debug {
+            if (hasFixedKeystore) {
+                signingConfig = signingConfigs.getByName("fixed")
+            }
+        }
         release {
             isMinifyEnabled = false
+            if (hasFixedKeystore) {
+                signingConfig = signingConfigs.getByName("fixed")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

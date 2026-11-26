@@ -24,12 +24,30 @@ jobs:
         with:
           gradle-version: 8.7
 
-      - name: Build Debug APK
+      - name: Decode signing keystore (if secret provided)
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 --decode > app/lichviec-release.jks
+            echo "Using fixed keystore from GitHub Secrets."
+          elif [ -f "app/lichviec-release.jks" ]; then
+            echo "Using fixed keystore from repository."
+          else
+            echo "No fixed keystore found, falling back to temporary debug keystore."
+          fi
+
+      - name: Build Signed APK
+        env:
+          BUILD_VERSION_CODE: ${{ github.run_number }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: gradle assembleDebug --stacktrace
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: LichViec-debug-apk
+          name: LichViec-v1.0.${{ github.run_number }}-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30

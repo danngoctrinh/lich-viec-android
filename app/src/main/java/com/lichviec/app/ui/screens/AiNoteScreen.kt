@@ -2,7 +2,9 @@ package com.lichviec.app.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -13,7 +15,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
@@ -22,8 +25,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -39,18 +41,16 @@ import com.lichviec.app.data.AiParsedTaskDraft
 import com.lichviec.app.data.RepeatType
 import com.lichviec.app.data.ScheduleType
 import com.lichviec.app.data.formatMinute
-import com.lichviec.app.ui.theme.BgBlack
-import com.lichviec.app.ui.theme.BorderBright
-import com.lichviec.app.ui.theme.BorderGray
-import com.lichviec.app.ui.theme.PureWhite
-import com.lichviec.app.ui.theme.SurfaceDark
-import com.lichviec.app.ui.theme.SurfaceElevated
-import com.lichviec.app.ui.theme.TextGray
-import com.lichviec.app.ui.theme.TextWhite
+import com.lichviec.app.ui.theme.CanvasBlack
+import com.lichviec.app.ui.theme.InkMuted
+import com.lichviec.app.ui.theme.InkSecondary
+import com.lichviec.app.ui.theme.InkWhite
+import com.lichviec.app.ui.theme.RuleGray
+import com.lichviec.app.ui.theme.RuleStrong
+import com.lichviec.app.ui.theme.SurfaceMuted
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AiNoteScreen(
     selectedDate: LocalDate,
@@ -71,8 +71,8 @@ fun AiNoteScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(BgBlack)
-            .padding(horizontal = 16.dp)
+            .background(CanvasBlack)
+            .padding(horizontal = 18.dp)
     ) {
         Spacer(modifier = Modifier.height(14.dp))
 
@@ -81,46 +81,43 @@ fun AiNoteScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
+            Column {
+                Text(
+                    text = "Ghi chú thông minh",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = InkWhite
+                )
+                Text(
+                    text = "Tự tách việc và xếp giờ cho ngày ${selectedDate.format(dateFmt)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = InkSecondary
+                )
+            }
+
             Text(
-                text = "AI Ghi chú → Tự chia lịch",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = PureWhite
-            )
-            Text(
-                text = if (hasApiKey) "Gemini AI" else "Offline",
+                text = if (hasApiKey) "Gemini" else "Offline",
                 style = MaterialTheme.typography.labelMedium,
-                color = if (hasApiKey) PureWhite else TextGray,
-                fontWeight = FontWeight.SemiBold,
+                color = if (hasApiKey) InkWhite else InkSecondary,
                 modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(SurfaceElevated)
-                    .border(1.dp, BorderBright, RoundedCornerShape(6.dp))
-                    .padding(horizontal = 8.dp, vertical = 3.dp)
+                    .clip(CircleShape)
+                    .border(1.dp, if (hasApiKey) RuleStrong else RuleGray, CircleShape)
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
             )
         }
 
-        Spacer(modifier = Modifier.height(4.dp))
-
-        Text(
-            text = "Ngày mặc định: ${selectedDate.format(dateFmt)}. Gõ tự nhiên các việc cố định, linh hoạt, lặp mỗi ngày.",
-            style = MaterialTheme.typography.bodySmall,
-            color = TextGray
-        )
-
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
         OutlinedTextField(
             value = inputText,
             onValueChange = onInputChange,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(136.dp),
+                .height(138.dp),
             shape = RoundedCornerShape(14.dp),
             placeholder = {
                 Text(
-                    "VD: 8h-9h30 học tiếng Anh cố định; làm báo cáo 90 phút ưu tiên cao; chiều tập gym 1 tiếng; 20h họp nhóm 45 phút; đọc sách 30 phút mỗi ngày",
-                    color = TextGray
+                    "Gõ tự nhiên: 8h-9h30 học tiếng Anh cố định; làm báo cáo 90 phút ưu tiên cao; chiều tập gym 1 tiếng mỗi ngày; 20h họp nhóm 45 phút",
+                    color = InkMuted
                 )
             }
         )
@@ -136,18 +133,18 @@ fun AiNoteScreen(
                 enabled = !isLoading,
                 modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = PureWhite, contentColor = BgBlack)
+                colors = ButtonDefaults.buttonColors(containerColor = InkWhite, contentColor = CanvasBlack)
             ) {
                 if (isLoading) {
                     CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        color = BgBlack,
+                        modifier = Modifier.size(16.dp),
+                        color = CanvasBlack,
                         strokeWidth = 2.dp
                     )
-                    Text(" Đang chia lịch...", fontWeight = FontWeight.Bold)
+                    Text("  Đang tách lịch...", fontWeight = FontWeight.SemiBold)
                 } else {
-                    Icon(Icons.Rounded.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Text(" Phân tích & chia giờ", fontWeight = FontWeight.Bold)
+                    Icon(Icons.Rounded.AutoAwesome, contentDescription = null, modifier = Modifier.size(17.dp))
+                    Text("  Tách lịch ngay", fontWeight = FontWeight.SemiBold)
                 }
             }
 
@@ -163,36 +160,36 @@ fun AiNoteScreen(
                 },
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Text("Mẫu thử", color = TextWhite)
+                Text("Mẫu thử", color = InkWhite)
             }
         }
 
         if (statusMessage.isNotBlank()) {
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(10.dp))
             Text(
                 text = statusMessage,
                 style = MaterialTheme.typography.bodySmall,
-                color = TextWhite,
+                color = InkWhite,
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(10.dp))
-                    .background(SurfaceElevated)
-                    .border(1.dp, BorderGray, RoundedCornerShape(10.dp))
-                    .padding(horizontal = 10.dp, vertical = 8.dp)
+                    .background(SurfaceMuted)
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
             )
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
         if (drafts.isNotEmpty()) {
+            HorizontalDivider(thickness = 0.5.dp, color = RuleGray)
             LazyColumn(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = PaddingValues(bottom = 12.dp)
+                contentPadding = PaddingValues(vertical = 6.dp)
             ) {
-                items(drafts, key = { it.id }) { draft ->
-                    DraftTaskCard(
+                itemsIndexed(drafts, key = { _, item -> item.id }) { index, draft ->
+                    DraftTaskRow(
                         draft = draft,
+                        isLast = index == drafts.lastIndex,
                         onToggleSelect = { onToggleSelect(draft.id) },
                         onToggleScheduleType = { onToggleScheduleType(draft.id) },
                         onToggleRepeatDaily = { onToggleRepeatDaily(draft.id) }
@@ -204,12 +201,15 @@ fun AiNoteScreen(
                 onClick = onApplyDrafts,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 12.dp),
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = PureWhite, contentColor = BgBlack)
+                    .padding(bottom = 14.dp, top = 6.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = InkWhite, contentColor = CanvasBlack)
             ) {
                 Icon(Icons.Rounded.Check, contentDescription = null, modifier = Modifier.size(18.dp))
-                Text(" Lưu ${drafts.count { it.selected }} việc vào lịch & tự xếp khe trống", fontWeight = FontWeight.Bold)
+                Text(
+                    "  Lưu ${drafts.count { it.selected }} việc vào lịch",
+                    fontWeight = FontWeight.SemiBold
+                )
             }
         } else {
             Spacer(modifier = Modifier.weight(1f))
@@ -217,58 +217,81 @@ fun AiNoteScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DraftTaskCard(
+private fun DraftTaskRow(
     draft: AiParsedTaskDraft,
+    isLast: Boolean,
     onToggleSelect: () -> Unit,
     onToggleScheduleType: () -> Unit,
     onToggleRepeatDaily: () -> Unit
 ) {
     val timeLabel = if (draft.startMinute != null && draft.endMinute != null) {
-        "${formatMinute(draft.startMinute)} - ${formatMinute(draft.endMinute)}"
+        "${formatMinute(draft.startMinute)} – ${formatMinute(draft.endMinute)}"
     } else {
-        "Linh hoạt (${draft.durationMinutes}p)"
+        "${draft.durationMinutes} phút (tự xếp)"
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(SurfaceDark)
-            .border(1.dp, BorderGray, RoundedCornerShape(14.dp))
-            .padding(10.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 10.dp),
+            verticalAlignment = Alignment.Top
+        ) {
             Checkbox(checked = draft.selected, onCheckedChange = { onToggleSelect() })
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = draft.title,
                     style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = PureWhite
+                    color = InkWhite
                 )
+                Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = "$timeLabel • Ngày ${draft.date} • Ưu tiên: ${draft.priority.label}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextGray
+                    text = "$timeLabel  |  ${draft.date}  |  Ưu tiên ${draft.priority.label.lowercase()}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = InkSecondary
                 )
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SmallTogglePill(
+                        text = draft.scheduleType.label,
+                        active = draft.scheduleType == ScheduleType.FIXED,
+                        onClick = onToggleScheduleType
+                    )
+                    SmallTogglePill(
+                        text = if (draft.repeatType == RepeatType.DAILY) "Mỗi ngày" else "1 lần",
+                        active = draft.repeatType == RepeatType.DAILY,
+                        onClick = onToggleRepeatDaily
+                    )
+                }
             }
         }
-        Row(
-            modifier = Modifier.padding(start = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            FilterChip(
-                selected = draft.scheduleType == ScheduleType.FIXED,
-                onClick = onToggleScheduleType,
-                label = { Text(draft.scheduleType.label) }
-            )
-            FilterChip(
-                selected = draft.repeatType == RepeatType.DAILY,
-                onClick = onToggleRepeatDaily,
-                label = { Text(if (draft.repeatType == RepeatType.DAILY) "Mỗi ngày" else "1 lần") }
-            )
+        if (!isLast) {
+            HorizontalDivider(thickness = 0.5.dp, color = RuleGray)
         }
+    }
+}
+
+@Composable
+private fun SmallTogglePill(
+    text: String,
+    active: Boolean,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .clip(CircleShape)
+            .background(if (active) InkWhite else CanvasBlack)
+            .border(1.dp, if (active) InkWhite else RuleGray, CircleShape)
+            .clickable { onClick() }
+            .padding(horizontal = 10.dp, vertical = 4.dp)
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal
+            ),
+            color = if (active) CanvasBlack else InkSecondary
+        )
     }
 }

@@ -1,46 +1,116 @@
 package com.lichviec.app.ui.theme
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 
-// Bảng màu tối giản Đen – Trắng – Xám hòa hợp (OLED Monochrome)
-val BgBlack = Color(0xFF09090B)
-val SurfaceDark = Color(0xFF131316)
-val SurfaceElevated = Color(0xFF1C1C21)
-val BorderGray = Color(0xFF27272A)
-val BorderBright = Color(0xFF3F3F46)
+// Bảng màu tối giản Đen tuyền – Xám kiến trúc – Trắng tinh khiết
+val CanvasBlack = Color(0xFF000000)
+val RailDark = Color(0xFF0D0D0F)
+val SurfaceMuted = Color(0xFF161619)
+val SurfacePressed = Color(0xFF202025)
+val RuleGray = Color(0xFF26262B)
+val RuleStrong = Color(0xFF3A3A42)
 
-val TextWhite = Color(0xFFFAFAFA)
-val PureWhite = Color(0xFFFFFFFF)
-val TextGray = Color(0xFFA1A1AA)
-val TextMuted = Color(0xFF71717A)
-val TagGrayBg = Color(0xFF232329)
+val InkWhite = Color(0xFFFFFFFF)
+val InkSoftWhite = Color(0xFFE4E4E7)
+val InkSecondary = Color(0xFF9A9AA4)
+val InkMuted = Color(0xFF5C5C66)
 
-private val MonochromeDarkScheme = darkColorScheme(
-    primary = PureWhite,
-    onPrimary = BgBlack,
-    primaryContainer = SurfaceElevated,
-    onPrimaryContainer = PureWhite,
-    secondary = Color(0xFFD4D4D8),
-    onSecondary = BgBlack,
-    secondaryContainer = TagGrayBg,
-    onSecondaryContainer = TextWhite,
-    background = BgBlack,
-    onBackground = TextWhite,
-    surface = SurfaceDark,
-    onSurface = TextWhite,
-    surfaceVariant = SurfaceElevated,
-    onSurfaceVariant = TextGray,
-    outline = BorderGray,
-    outlineVariant = BorderBright
+// Alias tương thích cho các thành phần phụ
+val BgBlack = CanvasBlack
+val SurfaceDark = RailDark
+val SurfaceElevated = SurfaceMuted
+val BorderGray = RuleGray
+val BorderBright = RuleStrong
+val PureWhite = InkWhite
+val TextWhite = InkSoftWhite
+val TextGray = InkSecondary
+val TextMuted = InkMuted
+
+private val EditorialTypography = Typography(
+    displaySmall = TextStyle(
+        fontWeight = FontWeight.Light,
+        fontSize = 38.sp,
+        lineHeight = 42.sp,
+        letterSpacing = (-1.2).sp,
+        fontFeatureSettings = "tnum"
+    ),
+    headlineSmall = TextStyle(
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 22.sp,
+        lineHeight = 28.sp,
+        letterSpacing = (-0.4).sp
+    ),
+    titleMedium = TextStyle(
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 16.sp,
+        lineHeight = 22.sp,
+        letterSpacing = (-0.2).sp
+    ),
+    titleSmall = TextStyle(
+        fontWeight = FontWeight.Medium,
+        fontSize = 15.sp,
+        lineHeight = 20.sp
+    ),
+    bodyMedium = TextStyle(
+        fontWeight = FontWeight.Normal,
+        fontSize = 14.sp,
+        lineHeight = 20.sp
+    ),
+    bodySmall = TextStyle(
+        fontWeight = FontWeight.Normal,
+        fontSize = 12.sp,
+        lineHeight = 17.sp
+    ),
+    labelLarge = TextStyle(
+        fontWeight = FontWeight.Medium,
+        fontSize = 13.sp,
+        lineHeight = 18.sp
+    ),
+    labelMedium = TextStyle(
+        fontWeight = FontWeight.Medium,
+        fontSize = 12.sp,
+        lineHeight = 16.sp,
+        fontFeatureSettings = "tnum"
+    ),
+    labelSmall = TextStyle(
+        fontWeight = FontWeight.Medium,
+        fontSize = 11.sp,
+        lineHeight = 14.sp,
+        fontFeatureSettings = "tnum"
+    )
+)
+
+private val MonochromeScheme = darkColorScheme(
+    primary = InkWhite,
+    onPrimary = CanvasBlack,
+    primaryContainer = SurfaceMuted,
+    onPrimaryContainer = InkWhite,
+    secondary = InkSoftWhite,
+    onSecondary = CanvasBlack,
+    secondaryContainer = SurfacePressed,
+    onSecondaryContainer = InkWhite,
+    background = CanvasBlack,
+    onBackground = InkSoftWhite,
+    surface = RailDark,
+    onSurface = InkSoftWhite,
+    surfaceVariant = SurfaceMuted,
+    onSurfaceVariant = InkSecondary,
+    outline = RuleGray,
+    outlineVariant = RuleStrong
 )
 
 @Composable
 fun LichViecTheme(content: @Composable () -> Unit) {
     MaterialTheme(
-        colorScheme = MonochromeDarkScheme,
+        colorScheme = MonochromeScheme,
+        typography = EditorialTypography,
         content = content
     )
 }

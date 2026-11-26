@@ -1,6 +1,7 @@
 package com.lichviec.app.ui
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
@@ -9,6 +10,7 @@ import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.DateRange
 import androidx.compose.material.icons.rounded.Today
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -26,6 +28,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.lichviec.app.data.TaskItem
 import com.lichviec.app.data.TaskStatus
@@ -35,11 +38,12 @@ import com.lichviec.app.ui.screens.AiNoteScreen
 import com.lichviec.app.ui.screens.StatsSettingsScreen
 import com.lichviec.app.ui.screens.TodayScreen
 import com.lichviec.app.ui.screens.WeekScreen
-import com.lichviec.app.ui.theme.BgBlack
-import com.lichviec.app.ui.theme.PureWhite
-import com.lichviec.app.ui.theme.SurfaceDark
-import com.lichviec.app.ui.theme.SurfaceElevated
-import com.lichviec.app.ui.theme.TextGray
+import com.lichviec.app.ui.theme.CanvasBlack
+import com.lichviec.app.ui.theme.InkMuted
+import com.lichviec.app.ui.theme.InkWhite
+import com.lichviec.app.ui.theme.RailDark
+import com.lichviec.app.ui.theme.RuleGray
+import com.lichviec.app.ui.theme.SurfaceMuted
 import com.lichviec.app.viewmodel.MainViewModel
 
 @Composable
@@ -76,15 +80,15 @@ fun MainApp(
     }
 
     val navItemColors = NavigationBarItemDefaults.colors(
-        selectedIconColor = PureWhite,
-        selectedTextColor = PureWhite,
-        indicatorColor = SurfaceElevated,
-        unselectedIconColor = TextGray,
-        unselectedTextColor = TextGray
+        selectedIconColor = InkWhite,
+        selectedTextColor = InkWhite,
+        indicatorColor = SurfaceMuted,
+        unselectedIconColor = InkMuted,
+        unselectedTextColor = InkMuted
     )
 
     Scaffold(
-        containerColor = BgBlack,
+        containerColor = CanvasBlack,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
             if (selectedTab == 0 || selectedTab == 1) {
@@ -93,43 +97,46 @@ fun MainApp(
                         editingTask = null
                         showAddDialog = true
                     },
-                    containerColor = PureWhite,
-                    contentColor = BgBlack
+                    containerColor = InkWhite,
+                    contentColor = CanvasBlack
                 ) {
                     Icon(Icons.Rounded.Add, contentDescription = "Thêm công việc")
                 }
             }
         },
         bottomBar = {
-            NavigationBar(containerColor = SurfaceDark) {
-                NavigationBarItem(
-                    selected = selectedTab == 0,
-                    onClick = { selectedTab = 0 },
-                    icon = { Icon(Icons.Rounded.Today, contentDescription = null) },
-                    label = { Text("Ngày") },
-                    colors = navItemColors
-                )
-                NavigationBarItem(
-                    selected = selectedTab == 1,
-                    onClick = { selectedTab = 1 },
-                    icon = { Icon(Icons.Rounded.DateRange, contentDescription = null) },
-                    label = { Text("Tuần") },
-                    colors = navItemColors
-                )
-                NavigationBarItem(
-                    selected = selectedTab == 2,
-                    onClick = { selectedTab = 2 },
-                    icon = { Icon(Icons.Rounded.AutoAwesome, contentDescription = null) },
-                    label = { Text("AI Ghi chú") },
-                    colors = navItemColors
-                )
-                NavigationBarItem(
-                    selected = selectedTab == 3,
-                    onClick = { selectedTab = 3 },
-                    icon = { Icon(Icons.Rounded.BarChart, contentDescription = null) },
-                    label = { Text("Thống kê") },
-                    colors = navItemColors
-                )
+            Column {
+                HorizontalDivider(thickness = 0.5.dp, color = RuleGray)
+                NavigationBar(containerColor = RailDark, tonalElevation = 0.dp) {
+                    NavigationBarItem(
+                        selected = selectedTab == 0,
+                        onClick = { selectedTab = 0 },
+                        icon = { Icon(Icons.Rounded.Today, contentDescription = null) },
+                        label = { Text("Ngày") },
+                        colors = navItemColors
+                    )
+                    NavigationBarItem(
+                        selected = selectedTab == 1,
+                        onClick = { selectedTab = 1 },
+                        icon = { Icon(Icons.Rounded.DateRange, contentDescription = null) },
+                        label = { Text("Tuần") },
+                        colors = navItemColors
+                    )
+                    NavigationBarItem(
+                        selected = selectedTab == 2,
+                        onClick = { selectedTab = 2 },
+                        icon = { Icon(Icons.Rounded.AutoAwesome, contentDescription = null) },
+                        label = { Text("Ghi chú") },
+                        colors = navItemColors
+                    )
+                    NavigationBarItem(
+                        selected = selectedTab == 3,
+                        onClick = { selectedTab = 3 },
+                        icon = { Icon(Icons.Rounded.BarChart, contentDescription = null) },
+                        label = { Text("Thống kê") },
+                        colors = navItemColors
+                    )
+                }
             }
         }
     ) { innerPadding ->
@@ -144,6 +151,7 @@ fun MainApp(
                     onAutoSchedule = { viewModel.autoScheduleSelectedDay() },
                     onCarryOverYesterday = { viewModel.carryOverUnfinishedFromYesterday() },
                     onCycleStatus = { viewModel.cycleTaskStatus(it.id, state.selectedDate) },
+                    onMarkDone = { viewModel.setTaskStatus(it.id, state.selectedDate, TaskStatus.DONE) },
                     onEditTask = {
                         editingTask = it
                         showAddDialog = true
