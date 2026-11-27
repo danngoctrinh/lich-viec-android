@@ -70,5 +70,6 @@ class MainActivity : ComponentActivity() {
     companion object {
         const val EXTRA_OPEN_TAB = "extra_open_tab"
         const val EXTRA_OPEN_ADD_DIALOG = "extra_open_add_dialog"
+        const val EXTRA_START_VOICE = "extra_start_voice"
     }
 }

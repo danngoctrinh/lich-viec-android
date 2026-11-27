@@ -5,17 +5,20 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
@@ -33,11 +36,14 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.lichviec.app.data.RepeatType
 import com.lichviec.app.data.ScheduleType
+import com.lichviec.app.data.SubTask
 import com.lichviec.app.data.TaskItem
 import com.lichviec.app.data.TaskPriority
 import com.lichviec.app.data.TaskStatus
 import com.lichviec.app.data.TimePreference
 import com.lichviec.app.data.formatMinute
+import com.lichviec.app.domain.VietnameseLunarCalendar
+import com.lichviec.app.ui.theme.InkSecondary
 import java.time.LocalDate
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -58,13 +64,18 @@ fun AddEditTaskDialog(
     var timePreference by remember { mutableStateOf(initialTask?.timePreference ?: TimePreference.ANY) }
     var priority by remember { mutableStateOf(initialTask?.priority ?: TaskPriority.MEDIUM) }
     var repeatType by remember { mutableStateOf(initialTask?.repeatType ?: RepeatType.NONE) }
-    var repeatDays by remember { mutableStateOf(initialTask?.repeatDays ?: setOf(1, 3, 5)) }
+    var repeatDays by remember { mutableStateOf(initialTask?.repeatDays ?: setOf(defaultDate.dayOfWeek.value)) }
     var status by remember { mutableStateOf(initialTask?.statusOn(defaultDate) ?: TaskStatus.TODO) }
     var reminderEnabled by remember { mutableStateOf(initialTask?.reminderEnabled ?: true) }
     var category by remember { mutableStateOf(initialTask?.category ?: "Công việc") }
+    var subtasks by remember { mutableStateOf(initialTask?.subtasks ?: emptyList()) }
+    var newSubtaskText by remember { mutableStateOf("") }
 
     val dayLabels = listOf(1 to "T2", 2 to "T3", 3 to "T4", 4 to "T5", 5 to "T6", 6 to "T7", 7 to "CN")
     val categories = listOf("Công việc", "Học tập", "Sức khỏe", "Cá nhân")
+    val previewLunar = runCatching {
+        VietnameseLunarCalendar.fromSolarDate(LocalDate.parse(dateText.trim())).shortLabel()
+    }.getOrNull()
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -101,9 +112,58 @@ fun AddEditTaskDialog(
                     value = dateText,
                     onValueChange = { dateText = it },
                     label = { Text("Ngày bắt đầu (YYYY-MM-DD)") },
+                    supportingText = if (previewLunar != null) {
+                        { Text("Âm lịch tương ứng: $previewLunar", color = InkSecondary) }
+                    } else null,
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
+
+                // Việc con (Checklist)
+                Text("Việc con (Checklist)", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    OutlinedTextField(
+                        value = newSubtaskText,
+                        onValueChange = { newSubtaskText = it },
+                        placeholder = { Text("Thêm bước nhỏ...") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(
+                        onClick = {
+                            val trimmed = newSubtaskText.trim()
+                            if (trimmed.isNotEmpty()) {
+                                subtasks = subtasks + SubTask(title = trimmed)
+                                newSubtaskText = ""
+                            }
+                        }
+                    ) {
+                        Icon(Icons.Rounded.Add, contentDescription = "Thêm việc con")
+                    }
+                }
+                subtasks.forEach { st ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "- ${st.title}",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(
+                            onClick = { subtasks = subtasks.filterNot { it.id == st.id } },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(Icons.Rounded.Close, contentDescription = "Xóa", modifier = Modifier.size(16.dp))
+                        }
+                    }
+                }
 
                 Text("Loại giờ", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -121,14 +181,14 @@ fun AddEditTaskDialog(
                         OutlinedTextField(
                             value = startText,
                             onValueChange = { startText = it },
-                            label = { Text("Bắt đầu (HH:mm)") },
+                            label = { Text("Bắt đầu") },
                             singleLine = true,
                             modifier = Modifier.weight(1f)
                         )
                         OutlinedTextField(
                             value = endText,
                             onValueChange = { endText = it },
-                            label = { Text("Kết thúc (HH:mm)") },
+                            label = { Text("Kết thúc") },
                             singleLine = true,
                             modifier = Modifier.weight(1f)
                         )
@@ -167,7 +227,7 @@ fun AddEditTaskDialog(
                 }
 
                 Text("Lặp lại", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     RepeatType.entries.forEach { rp ->
                         FilterChip(
                             selected = repeatType == rp,
@@ -232,8 +292,8 @@ fun AddEditTaskDialog(
             Button(
                 enabled = title.trim().isNotEmpty(),
                 onClick = {
-                    val safeDate = runCatching { LocalDate.parse(dateText.trim()).toString() }
-                        .getOrDefault(defaultDate.toString())
+                    val safeDate = runCatching { LocalDate.parse(dateText.trim()) }
+                        .getOrDefault(defaultDate)
 
                     val parsedStart = if (scheduleType == ScheduleType.FIXED) parseHmToMinutes(startText) else initialTask?.startMinute
                     val parsedEnd = if (scheduleType == ScheduleType.FIXED) parseHmToMinutes(endText) else initialTask?.endMinute
@@ -249,11 +309,11 @@ fun AddEditTaskDialog(
                         parsedEnd
                     }
 
-                    val base = initialTask ?: TaskItem(title = title.trim(), date = safeDate)
+                    val base = initialTask ?: TaskItem(title = title.trim(), date = safeDate.toString())
                     val updated = base.copy(
                         title = title.trim(),
                         note = note.trim(),
-                        date = safeDate,
+                        date = safeDate.toString(),
                         scheduleType = scheduleType,
                         startMinute = if (scheduleType == ScheduleType.FIXED) parsedStart else base.startMinute,
                         endMinute = if (scheduleType == ScheduleType.FIXED) finalEnd else base.endMinute,
@@ -261,9 +321,10 @@ fun AddEditTaskDialog(
                         timePreference = timePreference,
                         priority = priority,
                         repeatType = repeatType,
-                        repeatDays = if (repeatType == RepeatType.WEEKLY_DAYS) repeatDays else emptySet(),
+                        repeatDays = if (repeatType == RepeatType.WEEKLY_DAYS) repeatDays.ifEmpty { setOf(safeDate.dayOfWeek.value) } else emptySet(),
                         reminderEnabled = reminderEnabled,
-                        category = category
+                        category = category,
+                        subtasks = subtasks
                     ).withStatusOn(defaultDate, status)
 
                     onSave(updated)

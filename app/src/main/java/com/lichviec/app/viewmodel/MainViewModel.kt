@@ -12,8 +12,11 @@ import com.lichviec.app.data.TaskPriority
 import com.lichviec.app.data.TaskRepository
 import com.lichviec.app.data.TaskStatus
 import com.lichviec.app.data.TimePreference
+import com.lichviec.app.data.formatMinute
+import com.lichviec.app.domain.DeviceCalendarHelper
 import com.lichviec.app.domain.GeminiAiService
 import com.lichviec.app.domain.SmartScheduler
+import com.lichviec.app.domain.TimeSlot
 import com.lichviec.app.notification.LockScreenNotificationHelper
 import com.lichviec.app.notification.ReminderScheduler
 import com.lichviec.app.widget.LichViecWidgetProvider
@@ -36,6 +39,8 @@ data class MainUiState(
     val aiDrafts: List<AiParsedTaskDraft> = emptyList(),
     val isAiLoading: Boolean = false,
     val aiStatusMessage: String = "",
+    val weeklyReviewText: String = "",
+    val isWeeklyReviewLoading: Boolean = false,
     val toastMessage: String? = null
 )
 
@@ -45,18 +50,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _uiState = MutableStateFlow(
         MainUiState(
-            tasks = repository.loadTasks(),
             settings = repository.loadSettings()
         )
     )
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
 
     init {
-        if (_uiState.value.tasks.isEmpty()) {
-            seedInitialSamples()
-        } else {
-            refreshUpcomingStatuses(LocalDate.now())
-            syncExternalSurfaces(_uiState.value.tasks, _uiState.value.settings)
+        val loadResult = repository.loadTasksSafe()
+        when {
+            loadResult.wasCorrupted -> {
+                _uiState.update {
+                    it.copy(
+                        tasks = emptyList(),
+                        toastMessage = "File dữ liệu bị lỗi, đã sao lưu thành ${loadResult.corruptBackupPath ?: "bản dự phòng"} (không ghi đè)."
+                    )
+                }
+            }
+            !loadResult.fileExisted -> {
+                seedInitialSamples()
+            }
+            else -> {
+                _uiState.update { it.copy(tasks = loadResult.tasks) }
+                refreshUpcomingStatuses(LocalDate.now())
+                syncExternalSurfaces(loadResult.tasks, _uiState.value.settings)
+            }
         }
     }
 
@@ -102,6 +119,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(statusFilter = status) }
     }
 
+    fun showToast(message: String) {
+        _uiState.update { it.copy(toastMessage = message) }
+    }
+
     fun clearToast() {
         _uiState.update { it.copy(toastMessage = null) }
     }
@@ -130,13 +151,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             current.add(task)
         }
         persistTasks(current)
-        _uiState.update { it.copy(toastMessage = if (idx >= 0) "Đã cập nhật công việc" else "Đã thêm công việc mới") }
+        showToast(if (idx >= 0) "Đã cập nhật công việc" else "Đã thêm công việc mới")
     }
 
     fun deleteTask(taskId: String) {
         val updated = _uiState.value.tasks.filterNot { it.id == taskId }
         persistTasks(updated)
-        _uiState.update { it.copy(toastMessage = "Đã xóa công việc") }
+        showToast("Đã xóa công việc")
     }
 
     fun setTaskStatus(taskId: String, date: LocalDate, status: TaskStatus) {
@@ -150,6 +171,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val updated = _uiState.value.tasks.map { task ->
             if (task.id == taskId) {
                 task.withStatusOn(date, task.statusOn(date).next())
+            } else {
+                task
+            }
+        }
+        persistTasks(updated)
+    }
+
+    fun toggleSubTask(taskId: String, subTaskId: String) {
+        val updated = _uiState.value.tasks.map { task ->
+            if (task.id == taskId) {
+                task.copy(
+                    subtasks = task.subtasks.map { st ->
+                        if (st.id == subTaskId) st.copy(done = !st.done) else st
+                    }
+                )
             } else {
                 task
             }
@@ -176,15 +212,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun readExternalBusySlots(date: LocalDate): List<TimeSlot> {
+        val settings = _uiState.value.settings
+        if (!settings.avoidDeviceCalendarEvents) return emptyList()
+        return DeviceCalendarHelper.readBusySlotsForDate(getApplication(), date)
+    }
+
     fun autoScheduleSelectedDay() {
         val date = _uiState.value.selectedDate
+        val busySlots = readExternalBusySlots(date)
         val scheduled = SmartScheduler.autoScheduleDay(
             allTasks = _uiState.value.tasks,
             targetDate = date,
-            settings = _uiState.value.settings
+            settings = _uiState.value.settings,
+            externalBusySlots = busySlots
         )
         persistTasks(scheduled)
-        _uiState.update { it.copy(toastMessage = "Đã tự động xếp giờ các việc linh hoạt") }
+        val suffix = if (busySlots.isNotEmpty()) " (đã né ${busySlots.size} lịch trên máy)" else ""
+        showToast("Đã tự động xếp giờ các việc linh hoạt$suffix")
+    }
+
+    fun rescheduleOverdueTask(taskId: String, date: LocalDate = _uiState.value.selectedDate) {
+        val busySlots = readExternalBusySlots(date)
+        val (updated, slot) = SmartScheduler.rescheduleSingleTaskToNextSlot(
+            allTasks = _uiState.value.tasks,
+            taskId = taskId,
+            targetDate = date,
+            settings = _uiState.value.settings,
+            externalBusySlots = busySlots
+        )
+        if (slot != null) {
+            persistTasks(updated)
+            showToast("Đã dời sang ${formatMinute(slot.start)} – ${formatMinute(slot.end)}")
+        } else {
+            showToast("Hôm nay không còn khe trống phù hợp")
+        }
     }
 
     fun carryOverUnfinishedFromYesterday() {
@@ -217,7 +279,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             persistTasks(updated)
             _uiState.update { it.copy(selectedDate = today, toastMessage = "Đã chuyển $movedCount việc chưa xong sang hôm nay") }
         } else {
-            _uiState.update { it.copy(toastMessage = "Không có việc chưa xong từ hôm qua") }
+            showToast("Không có việc chưa xong từ hôm qua")
         }
     }
 
@@ -225,10 +287,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(aiInputText = text) }
     }
 
+    fun appendVoiceTranscript(transcript: String) {
+        val clean = transcript.trim()
+        if (clean.isEmpty()) return
+        _uiState.update { state ->
+            val updatedText = if (state.aiInputText.isBlank()) clean else "${state.aiInputText.trim()}\n$clean"
+            state.copy(aiInputText = updatedText)
+        }
+    }
+
     fun analyzeNoteWithAi(targetDate: LocalDate = _uiState.value.selectedDate) {
         val text = _uiState.value.aiInputText.trim()
         if (text.isEmpty()) {
-            _uiState.update { it.copy(toastMessage = "Hãy nhập ghi chú công việc trước") }
+            showToast("Hãy nhập hoặc nói ghi chú công việc trước")
             return
         }
 
@@ -294,7 +365,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun applySelectedAiDrafts(autoScheduleFlexible: Boolean = true) {
         val selected = _uiState.value.aiDrafts.filter { it.selected }
         if (selected.isEmpty()) {
-            _uiState.update { it.copy(toastMessage = "Chưa chọn công việc nào để lưu") }
+            showToast("Chưa chọn công việc nào để lưu")
             return
         }
         val newTasks = selected.map { it.toTaskItem() }
@@ -303,7 +374,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (autoScheduleFlexible) {
             val affectedDates = newTasks.mapNotNull { runCatching { LocalDate.parse(it.date) }.getOrNull() }.distinct()
             for (d in affectedDates) {
-                combined = SmartScheduler.autoScheduleDay(combined, d, _uiState.value.settings)
+                val busySlots = readExternalBusySlots(d)
+                combined = SmartScheduler.autoScheduleDay(combined, d, _uiState.value.settings, busySlots)
             }
         }
 
@@ -315,6 +387,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 aiStatusMessage = "",
                 toastMessage = "Đã lưu ${newTasks.size} công việc vào lịch"
             )
+        }
+    }
+
+    fun generateWeeklyReview() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isWeeklyReviewLoading = true) }
+            val summary = GeminiAiService.generateWeeklyReview(
+                tasksProvider = { date -> tasksForDate(date) },
+                settings = _uiState.value.settings
+            )
+            _uiState.update {
+                it.copy(
+                    isWeeklyReviewLoading = false,
+                    weeklyReviewText = summary
+                )
+            }
         }
     }
 
@@ -335,7 +423,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.update { it.copy(tasks = loaded, toastMessage = "Đã khôi phục ${loaded.size} công việc") }
             syncExternalSurfaces(loaded, _uiState.value.settings)
         } else {
-            _uiState.update { it.copy(toastMessage = "JSON sao lưu không hợp lệ") }
+            showToast("Tệp JSON sao lưu không hợp lệ")
         }
     }
 
@@ -379,7 +467,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         LockScreenNotificationHelper.updateLockScreenSummary(
             app,
             tasks,
-            settings.lockScreenSummaryEnabled
+            settings.lockScreenSummaryEnabled,
+            settings.hideLockScreenDetails
         )
         LichViecWidgetProvider.updateAllWidgets(app)
     }

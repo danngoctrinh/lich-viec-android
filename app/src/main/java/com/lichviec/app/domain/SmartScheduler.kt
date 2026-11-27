@@ -15,12 +15,13 @@ object SmartScheduler {
 
     /**
      * Tự động sắp xếp lại khung giờ cho các công việc FLEXIBLE (chưa hoàn thành) trong ngày [targetDate],
-     * giữ nguyên hoàn toàn các công việc FIXED (giờ cố định).
+     * giữ nguyên hoàn toàn các công việc FIXED và né các khe bận từ lịch điện thoại [externalBusySlots].
      */
     fun autoScheduleDay(
         allTasks: List<TaskItem>,
         targetDate: LocalDate,
-        settings: AppSettings
+        settings: AppSettings,
+        externalBusySlots: List<TimeSlot> = emptyList()
     ): List<TaskItem> {
         val dayTasks = allTasks.filter { it.appliesToDate(targetDate) }
         if (dayTasks.isEmpty()) return allTasks
@@ -29,7 +30,6 @@ object SmartScheduler {
         val dayEnd = settings.workEndMinute.coerceIn(dayStart + 60, 23 * 60 + 55)
         val gap = settings.breakMinutes.coerceIn(0, 60)
 
-        // Nếu là hôm nay, ưu tiên xếp từ thời điểm hiện tại trở đi (làm tròn lên bội số 5 phút)
         val nowMinute = if (targetDate == LocalDate.now()) {
             val now = LocalTime.now()
             val raw = now.hour * 60 + now.minute
@@ -38,8 +38,9 @@ object SmartScheduler {
             dayStart
         }
 
-        // Các khối thời gian bị chiếm cứng: việc FIXED + việc đã DONE có giờ
         val occupied = mutableListOf<TimeSlot>()
+        occupied.addAll(externalBusySlots)
+
         dayTasks.forEach { task ->
             val st = task.statusOn(targetDate)
             if ((task.scheduleType == ScheduleType.FIXED || st == TaskStatus.DONE) &&
@@ -49,7 +50,6 @@ object SmartScheduler {
             }
         }
 
-        // Các việc linh hoạt chưa hoàn thành cần xếp giờ
         val flexibleToSchedule = dayTasks
             .filter { it.scheduleType == ScheduleType.FLEXIBLE && it.statusOn(targetDate) != TaskStatus.DONE }
             .sortedWith(
@@ -65,15 +65,10 @@ object SmartScheduler {
             val prefStart = maxOf(dayStart, task.timePreference.startMinute, nowMinute)
             val prefEnd = minOf(dayEnd, task.timePreference.endMinute)
 
-            // Tìm khe trống trong buổi ưu tiên trước
             var slot = findFirstAvailableSlot(occupied, prefStart, prefEnd, duration, gap)
-
-            // Nếu buổi ưu tiên đã kín, tìm trong toàn bộ khung giờ làm việc từ nowMinute trở đi
             if (slot == null) {
                 slot = findFirstAvailableSlot(occupied, maxOf(dayStart, nowMinute), dayEnd, duration, gap)
             }
-
-            // Nếu hôm nay đã muộn, thử lại từ đầu ngày (dayStart..dayEnd)
             if (slot == null && nowMinute > dayStart) {
                 slot = findFirstAvailableSlot(occupied, dayStart, dayEnd, duration, gap)
             }
@@ -88,6 +83,55 @@ object SmartScheduler {
         }
 
         return allTasks.map { updatedMap[it.id] ?: it }
+    }
+
+    /**
+     * Dời 1 công việc bị trễ sang khe trống gần nhất tính từ thời điểm hiện tại.
+     * Trả về cặp (danh sách cập nhật, khe giờ mới hoặc null nếu hôm nay đã kín).
+     */
+    fun rescheduleSingleTaskToNextSlot(
+        allTasks: List<TaskItem>,
+        taskId: String,
+        targetDate: LocalDate,
+        settings: AppSettings,
+        externalBusySlots: List<TimeSlot> = emptyList()
+    ): Pair<List<TaskItem>, TimeSlot?> {
+        val target = allTasks.firstOrNull { it.id == taskId } ?: return allTasks to null
+        val dayStart = settings.workStartMinute.coerceIn(0, 23 * 60)
+        val dayEnd = settings.workEndMinute.coerceIn(dayStart + 60, 23 * 60 + 55)
+        val gap = settings.breakMinutes.coerceIn(0, 60)
+
+        val nowMinute = if (targetDate == LocalDate.now()) {
+            val now = LocalTime.now()
+            val raw = now.hour * 60 + now.minute + 5
+            ((raw + 4) / 5) * 5
+        } else {
+            dayStart
+        }
+
+        val occupied = mutableListOf<TimeSlot>()
+        occupied.addAll(externalBusySlots)
+        allTasks.filter { it.id != taskId && it.appliesToDate(targetDate) }.forEach { other ->
+            if (other.startMinute != null && other.endMinute != null && other.endMinute > other.startMinute) {
+                occupied.add(TimeSlot(other.startMinute, other.endMinute))
+            }
+        }
+
+        val duration = target.effectiveDurationMinutes().coerceAtLeast(15)
+        val slot = findFirstAvailableSlot(occupied, maxOf(dayStart, nowMinute), dayEnd, duration, gap)
+            ?: return allTasks to null
+
+        val updated = allTasks.map { item ->
+            if (item.id == taskId) {
+                item.copy(
+                    startMinute = slot.start,
+                    endMinute = slot.end
+                ).withStatusOn(targetDate, TaskStatus.UPCOMING)
+            } else {
+                item
+            }
+        }
+        return updated to slot
     }
 
     private fun findFirstAvailableSlot(

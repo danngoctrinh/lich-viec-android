@@ -4,8 +4,10 @@ import com.lichviec.app.data.AiParsedTaskDraft
 import com.lichviec.app.data.AppSettings
 import com.lichviec.app.data.RepeatType
 import com.lichviec.app.data.ScheduleType
+import com.lichviec.app.data.SubTask
 import com.lichviec.app.data.TaskItem
 import com.lichviec.app.data.TaskPriority
+import com.lichviec.app.data.TaskStatus
 import com.lichviec.app.data.TimePreference
 import com.lichviec.app.data.formatMinute
 import kotlinx.coroutines.Dispatchers
@@ -27,10 +29,15 @@ data class AiParseResult(
 
 object GeminiAiService {
 
-    private val modelCandidates = listOf(
-        "gemini-2.5-flash",
-        "gemini-2.0-flash"
+    private val defaultFallbackModels = listOf(
+        "gemini-3.8-flash",
+        "gemini-3.5-flash-lite"
     )
+
+    private fun buildModelList(configuredModel: String): List<String> {
+        val clean = configuredModel.trim()
+        return (listOfNotNull(clean.takeIf { it.isNotEmpty() }) + defaultFallbackModels).distinct()
+    }
 
     suspend fun parseAndScheduleNote(
         noteText: String,
@@ -44,15 +51,16 @@ object GeminiAiService {
             return@withContext AiParseResult(
                 drafts = offlineDrafts,
                 usedGemini = false,
-                message = "Đã tách ${offlineDrafts.size} việc bằng chế độ Offline (nhập Gemini API Key ở mục Cài đặt để AI chia lịch sâu hơn)."
+                message = "Đã tách ${offlineDrafts.size} việc bằng chế độ Offline (nhập Gemini API Key ở mục Thống kê để AI chia lịch sâu hơn)."
             )
         }
 
-        val prompt = buildPrompt(noteText, targetDate, existingTasksOnDate, settings)
+        val prompt = buildSchedulePrompt(noteText, targetDate, existingTasksOnDate, settings)
+        val models = buildModelList(settings.geminiModel)
 
         var lastError = ""
-        for (model in modelCandidates) {
-            val responseResult = callGeminiApi(trimmedKey, model, prompt)
+        for (model in models) {
+            val responseResult = callGeminiApi(trimmedKey, model, prompt, expectJson = true)
             if (responseResult.isSuccess) {
                 val rawText = responseResult.getOrNull().orEmpty()
                 val parsed = parseGeminiJsonResponse(rawText, targetDate)
@@ -76,7 +84,91 @@ object GeminiAiService {
         )
     }
 
-    private fun buildPrompt(
+    suspend fun generateWeeklyReview(
+        tasksProvider: (LocalDate) -> List<TaskItem>,
+        settings: AppSettings
+    ): String = withContext(Dispatchers.IO) {
+        val today = LocalDate.now()
+        var total = 0
+        var done = 0
+        var fixedMin = 0
+        var flexMin = 0
+        val unfinishedTitles = mutableListOf<String>()
+        val doneByPeriod = mutableMapOf("Sáng" to 0, "Chiều" to 0, "Tối" to 0)
+
+        for (i in 0..6) {
+            val d = today.minusDays(i.toLong())
+            val dayTasks = tasksProvider(d)
+            total += dayTasks.size
+            for (t in dayTasks) {
+                val st = t.statusOn(d)
+                if (t.scheduleType == ScheduleType.FIXED) fixedMin += t.effectiveDurationMinutes()
+                else flexMin += t.effectiveDurationMinutes()
+
+                if (st == TaskStatus.DONE) {
+                    done++
+                    val start = t.startMinute
+                    if (start != null) {
+                        when {
+                            start < 12 * 60 -> doneByPeriod["Sáng"] = (doneByPeriod["Sáng"] ?: 0) + 1
+                            start < 18 * 60 -> doneByPeriod["Chiều"] = (doneByPeriod["Chiều"] ?: 0) + 1
+                            else -> doneByPeriod["Tối"] = (doneByPeriod["Tối"] ?: 0) + 1
+                        }
+                    }
+                } else {
+                    unfinishedTitles.add(t.title)
+                }
+            }
+        }
+
+        val rate = if (total == 0) 0 else (done * 100 / total)
+        val bestPeriod = doneByPeriod.maxByOrNull { it.value }?.takeIf { it.value > 0 }?.key ?: "Chưa đủ dữ liệu"
+        val repeatedUnfinished = unfinishedTitles
+            .groupingBy { it }
+            .eachCount()
+            .entries
+            .sortedByDescending { it.value }
+            .take(3)
+            .joinToString(", ") { "${it.key} (${it.value} lần)" }
+            .ifBlank { "Không có" }
+
+        val offlineSummary = buildString {
+            appendLine("Tỷ lệ hoàn thành 7 ngày: $done/$total việc ($rate%).")
+            appendLine("Phân bổ giờ: Cố định ${fixedMin / 60}g${fixedMin % 60}p, Linh hoạt ${flexMin / 60}g${flexMin % 60}p.")
+            appendLine("Khung giờ hiệu quả nhất: $bestPeriod.")
+            append("Việc hay bị tồn lại: $repeatedUnfinished.")
+        }
+
+        val trimmedKey = settings.geminiApiKey.trim()
+        if (trimmedKey.isEmpty() || total == 0) {
+            return@withContext offlineSummary
+        }
+
+        val prompt = """
+Bạn là trợ lý năng suất cá nhân. Dựa trên số liệu 7 ngày gần nhất của người dùng:
+- Hoàn thành: $done / $total việc ($rate%)
+- Tổng giờ cố định: ${fixedMin / 60}g ${fixedMin % 60}p
+- Tổng giờ linh hoạt: ${flexMin / 60}g ${flexMin % 60}p
+- Khung buổi hoàn thành nhiều nhất: $bestPeriod
+- Việc hay bị bỏ dở / tồn lại: $repeatedUnfinished
+
+Hãy viết tổng kết ngắn gọn bằng tiếng Việt (3–4 gạch đầu dòng, tối đa 100 từ, trực diện, không sáo rỗng):
+1) Điểm làm tốt trong tuần
+2) Điểm nghẽn / việc hay bị dời
+3) 1 gợi ý điều chỉnh lịch cho tuần tới.
+        """.trimIndent()
+
+        for (model in buildModelList(settings.geminiModel)) {
+            val res = callGeminiApi(trimmedKey, model, prompt, expectJson = false)
+            if (res.isSuccess) {
+                val text = res.getOrNull()?.trim().orEmpty()
+                if (text.isNotEmpty()) return@withContext text
+            }
+        }
+        offlineSummary
+    }
+
+    private fun buildSchedulePrompt(
         noteText: String,
         targetDate: LocalDate,
         existingTasksOnDate: List<TaskItem>,
@@ -92,7 +184,7 @@ object GeminiAiService {
 
         return """
 Bạn là trợ lý chia lịch công việc cá nhân bằng tiếng Việt.
-Ngày mục tiêu mặc định: $targetDate
+Ngày mục tiêu mặc định: $targetDate (Thứ ${targetDate.dayOfWeek.value + 1}, quy ước 1=T2, 2=T3, 3=T4, 4=T5, 5=T6, 6=T7, 7=CN).
 Khung giờ hoạt động trong ngày: ${formatMinute(settings.workStartMinute)} đến ${formatMinute(settings.workEndMinute)}, nghỉ giữa các việc ${settings.breakMinutes} phút.
 
 Lịch đã có sẵn trong ngày $targetDate (KHÔNG được xếp đè lên các giờ này):
@@ -101,15 +193,15 @@ $fixedScheduleText
 Ghi chú của người dùng:
 "$noteText"
 
-Hãy phân tích ghi chú thành danh sách các công việc cụ thể, phân loại rõ:
+Hãy phân tích ghi chú thành danh sách các công việc cụ thể:
 - scheduleType: "FIXED" nếu người dùng nêu giờ cụ thể/cố định; "FLEXIBLE" nếu không nêu giờ cố định.
-- Với việc "FLEXIBLE", hãy tự động đề xuất startMinute và endMinute hợp lý (tính bằng phút từ 00:00, ví dụ 08:30 = 510) không trùng với lịch đã có và các việc khác.
-- repeatType: "DAILY" nếu lặp mỗi ngày, "WEEKLY_DAYS" nếu lặp theo thứ, ngược lại "NONE".
-- priority: "HIGH", "MEDIUM", hoặc "LOW".
-- timePreference: "MORNING", "AFTERNOON", "EVENING", hoặc "ANY".
+- Với việc "FLEXIBLE", đề xuất startMinute và endMinute hợp lý (tính bằng phút từ 00:00, ví dụ 08:30 = 510) không trùng lịch đã có.
+- repeatType: "NONE", "DAILY", "WEEKLY_DAYS", "LUNAR_MONTHLY" (rằm/mùng 1 hàng tháng âm), hoặc "LUNAR_YEARLY" (ngày giỗ/sinh nhật âm hàng năm).
+- Nếu repeatType là "WEEKLY_DAYS", BẮT BUỘC điền mảng số nguyên "repeatDays" (1=T2..7=CN), ví dụ [1, 3, 5].
+- Nếu 1 việc lớn có các bước nhỏ rõ ràng, thêm mảng "subtasks": ["Bước 1", "Bước 2"].
 
 CHỈ TRẢ VỀ JSON ARRAY HỢP LỆ, KHÔNG kèm markdown ```json hay giải thích gì thêm.
-Mỗi phần tử có đúng các trường sau:
+Mỗi phần tử có cấu trúc:
 {
   "title": "Tên công việc ngắn gọn",
   "note": "Chi tiết ngắn nếu có",
@@ -120,13 +212,20 @@ Mỗi phần tử có đúng các trường sau:
   "durationMinutes": 60,
   "timePreference": "MORNING | AFTERNOON | EVENING | ANY",
   "priority": "HIGH | MEDIUM | LOW",
-  "repeatType": "NONE | DAILY | WEEKLY_DAYS",
+  "repeatType": "NONE | DAILY | WEEKLY_DAYS | LUNAR_MONTHLY | LUNAR_YEARLY",
+  "repeatDays": [1, 3, 5],
+  "subtasks": [],
   "category": "Công việc | Học tập | Sức khỏe | Cá nhân"
 }
         """.trimIndent()
     }
 
-    private fun callGeminiApi(apiKey: String, model: String, prompt: String): Result<String> {
+    private fun callGeminiApi(
+        apiKey: String,
+        model: String,
+        prompt: String,
+        expectJson: Boolean
+    ): Result<String> {
         return runCatching {
             val endpoint = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey"
             val conn = (URL(endpoint).openConnection() as HttpURLConnection).apply {
@@ -147,13 +246,14 @@ Mỗi phần tử có đúng các trường sau:
                         )
                     )
                 )
-                put(
-                    "generationConfig",
-                    JSONObject().apply {
-                        put("temperature", 0.2)
-                        put("responseMimeType", "application/json")
-                    }
-                )
+                if (expectJson) {
+                    put(
+                        "generationConfig",
+                        JSONObject().apply {
+                            put("responseMimeType", "application/json")
+                        }
+                    )
+                }
             }
 
             OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { writer ->
@@ -198,8 +298,8 @@ Mỗi phần tử có đúng các trường sau:
                 val title = obj.optString("title").trim()
                 if (title.isEmpty()) continue
 
-                val dateStr = obj.optString("date", defaultDate.toString()).let {
-                    runCatching { LocalDate.parse(it).toString() }.getOrDefault(defaultDate.toString())
+                val parsedDate = obj.optString("date", defaultDate.toString()).let {
+                    runCatching { LocalDate.parse(it) }.getOrDefault(defaultDate)
                 }
                 val scheduleType = runCatching {
                     ScheduleType.valueOf(obj.optString("scheduleType", "FLEXIBLE").uppercase())
@@ -227,11 +327,34 @@ Mỗi phần tử có đúng các trường sau:
                     RepeatType.valueOf(obj.optString("repeatType", "NONE").uppercase())
                 }.getOrDefault(RepeatType.NONE)
 
+                val repeatDays = mutableSetOf<Int>()
+                val daysArr = obj.optJSONArray("repeatDays")
+                if (daysArr != null) {
+                    for (j in 0 until daysArr.length()) {
+                        val d = daysArr.optInt(j, -1)
+                        if (d in 1..7) repeatDays.add(d)
+                    }
+                }
+                if (repeatType == RepeatType.WEEKLY_DAYS && repeatDays.isEmpty()) {
+                    repeatDays.add(parsedDate.dayOfWeek.value)
+                }
+
+                val subtasks = mutableListOf<SubTask>()
+                val subArr = obj.optJSONArray("subtasks")
+                if (subArr != null) {
+                    for (j in 0 until subArr.length()) {
+                        val stTitle = subArr.optString(j).trim()
+                        if (stTitle.isNotEmpty()) {
+                            subtasks.add(SubTask(title = stTitle))
+                        }
+                    }
+                }
+
                 list.add(
                     AiParsedTaskDraft(
                         title = title,
                         note = obj.optString("note", ""),
-                        date = dateStr,
+                        date = parsedDate.toString(),
                         scheduleType = scheduleType,
                         startMinute = startMin,
                         endMinute = finalEnd,
@@ -239,7 +362,9 @@ Mỗi phần tử có đúng các trường sau:
                         timePreference = timePref,
                         priority = priority,
                         repeatType = repeatType,
+                        repeatDays = repeatDays,
                         category = obj.optString("category", "Chung"),
+                        subtasks = subtasks,
                         selected = true
                     )
                 )

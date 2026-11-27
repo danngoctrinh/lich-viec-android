@@ -1,5 +1,10 @@
 package com.lichviec.app.ui.screens
 
+import android.app.Activity
+import android.content.Intent
+import android.speech.RecognizerIntent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -21,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
@@ -60,6 +66,8 @@ fun AiNoteScreen(
     statusMessage: String,
     hasApiKey: Boolean,
     onInputChange: (String) -> Unit,
+    onVoiceResult: (String) -> Unit,
+    onVoiceUnavailable: () -> Unit,
     onAnalyze: () -> Unit,
     onToggleSelect: (String) -> Unit,
     onToggleScheduleType: (String) -> Unit,
@@ -67,6 +75,28 @@ fun AiNoteScreen(
     onApplyDrafts: () -> Unit
 ) {
     val dateFmt = DateTimeFormatter.ofPattern("dd/MM/yyyy")
+
+    val voiceLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val matches = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+            val spoken = matches?.firstOrNull().orEmpty()
+            if (spoken.isNotBlank()) {
+                onVoiceResult(spoken)
+            }
+        }
+    }
+
+    fun launchVietnameseVoiceInput() {
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "vi-VN")
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "vi-VN")
+            putExtra(RecognizerIntent.EXTRA_PROMPT, "Nói công việc và khung giờ (VD: 8h học tiếng Anh cố định)")
+        }
+        runCatching { voiceLauncher.launch(intent) }.onFailure { onVoiceUnavailable() }
+    }
 
     Column(
         modifier = Modifier
@@ -88,7 +118,7 @@ fun AiNoteScreen(
                     color = InkWhite
                 )
                 Text(
-                    text = "Tự tách việc và xếp giờ cho ngày ${selectedDate.format(dateFmt)}",
+                    text = "Gõ hoặc nói tiếng Việt cho ngày ${selectedDate.format(dateFmt)}",
                     style = MaterialTheme.typography.bodySmall,
                     color = InkSecondary
                 )
@@ -112,11 +142,11 @@ fun AiNoteScreen(
             onValueChange = onInputChange,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(138.dp),
+                .height(136.dp),
             shape = RoundedCornerShape(14.dp),
             placeholder = {
                 Text(
-                    "Gõ tự nhiên: 8h-9h30 học tiếng Anh cố định; làm báo cáo 90 phút ưu tiên cao; chiều tập gym 1 tiếng mỗi ngày; 20h họp nhóm 45 phút",
+                    "Gõ hoặc bấm Nói: 8h-9h30 học tiếng Anh cố định; làm báo cáo 90 phút ưu tiên cao; chiều tập gym 1 tiếng mỗi ngày; 20h họp nhóm 45 phút",
                     color = InkMuted
                 )
             }
@@ -141,11 +171,19 @@ fun AiNoteScreen(
                         color = CanvasBlack,
                         strokeWidth = 2.dp
                     )
-                    Text("  Đang tách lịch...", fontWeight = FontWeight.SemiBold)
+                    Text("  Đang tách...", fontWeight = FontWeight.SemiBold)
                 } else {
                     Icon(Icons.Rounded.AutoAwesome, contentDescription = null, modifier = Modifier.size(17.dp))
-                    Text("  Tách lịch ngay", fontWeight = FontWeight.SemiBold)
+                    Text("  Tách lịch", fontWeight = FontWeight.SemiBold)
                 }
+            }
+
+            OutlinedButton(
+                onClick = { launchVietnameseVoiceInput() },
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(Icons.Rounded.Mic, contentDescription = "Nói tiếng Việt", tint = InkWhite, modifier = Modifier.size(17.dp))
+                Text(" Nói", color = InkWhite)
             }
 
             OutlinedButton(
@@ -160,7 +198,7 @@ fun AiNoteScreen(
                 },
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Text("Mẫu thử", color = InkWhite)
+                Text("Mẫu", color = InkSecondary)
             }
         }
 
@@ -251,6 +289,13 @@ private fun DraftTaskRow(
                     style = MaterialTheme.typography.labelSmall,
                     color = InkSecondary
                 )
+                if (draft.subtasks.isNotEmpty()) {
+                    Text(
+                        text = "${draft.subtasks.size} việc con",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = InkMuted
+                    )
+                }
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     SmallTogglePill(
@@ -259,8 +304,8 @@ private fun DraftTaskRow(
                         onClick = onToggleScheduleType
                     )
                     SmallTogglePill(
-                        text = if (draft.repeatType == RepeatType.DAILY) "Mỗi ngày" else "1 lần",
-                        active = draft.repeatType == RepeatType.DAILY,
+                        text = draft.repeatType.label,
+                        active = draft.repeatType != RepeatType.NONE,
                         onClick = onToggleRepeatDaily
                     )
                 }

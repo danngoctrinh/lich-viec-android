@@ -45,6 +45,7 @@ class LichViecWidgetProvider : AppWidgetProvider() {
             appWidgetId: Int
         ) {
             val repo = TaskRepository(context)
+            val settings = repo.loadSettings()
             val today = LocalDate.now()
             val todayTasks = repo.loadTasks()
                 .filter { it.appliesToDate(today) }
@@ -57,19 +58,21 @@ class LichViecWidgetProvider : AppWidgetProvider() {
             val pending = todayTasks.filter { it.statusOn(today) != TaskStatus.DONE }
 
             val dateStr = today.format(DateTimeFormatter.ofPattern("dd/MM"))
-            val previewText = if (pending.isEmpty()) {
-                if (todayTasks.isEmpty()) "Chưa có công việc hôm nay.\nChạm \"+ Note AI\" để ghi chú nhanh."
-                else "Đã hoàn thành hết ${todayTasks.size} việc hôm nay."
-            } else {
-                pending.take(4).joinToString("\n") { task ->
-                    val timePrefix = if (task.startMinute != null) "${formatMinute(task.startMinute)} " else "• "
+            val previewText = when {
+                settings.hideLockScreenDetails -> "Còn ${pending.size} việc hôm nay (đang ẩn nội dung chi tiết)."
+                pending.isEmpty() -> {
+                    if (todayTasks.isEmpty()) "Chưa có công việc hôm nay.\nChạm \"+ Note AI\" để ghi chú nhanh."
+                    else "Đã hoàn thành hết ${todayTasks.size} việc hôm nay."
+                }
+                else -> pending.take(4).joinToString("\n") { task ->
+                    val timePrefix = if (task.startMinute != null) "${formatMinute(task.startMinute)} " else ""
                     val mark = if (task.statusOn(today) == TaskStatus.UPCOMING) "[Sắp] " else ""
                     "$timePrefix$mark${task.title}"
                 }
             }
 
             val views = RemoteViews(context.packageName, R.layout.widget_quick_note)
-            views.setTextViewText(R.id.widget_title, "Hôm nay • $dateStr")
+            views.setTextViewText(R.id.widget_title, "Hôm nay $dateStr")
             views.setTextViewText(R.id.widget_progress, "$doneCount/${todayTasks.size} xong")
             views.setTextViewText(R.id.widget_tasks_preview, previewText)
 
@@ -88,6 +91,7 @@ class LichViecWidgetProvider : AppWidgetProvider() {
             val aiNoteIntent = Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
                 putExtra(MainActivity.EXTRA_OPEN_TAB, 2)
+                putExtra(MainActivity.EXTRA_START_VOICE, false)
             }
             val aiNotePending = PendingIntent.getActivity(
                 context,

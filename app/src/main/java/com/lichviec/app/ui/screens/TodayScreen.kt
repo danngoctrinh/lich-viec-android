@@ -41,6 +41,7 @@ import com.lichviec.app.data.ScheduleType
 import com.lichviec.app.data.TaskItem
 import com.lichviec.app.data.TaskStatus
 import com.lichviec.app.data.shortDayName
+import com.lichviec.app.domain.VietnameseLunarCalendar
 import com.lichviec.app.ui.components.FocusHeroCard
 import com.lichviec.app.ui.components.TaskCard
 import com.lichviec.app.ui.theme.CanvasBlack
@@ -64,11 +65,14 @@ fun TodayScreen(
     onCarryOverYesterday: () -> Unit,
     onCycleStatus: (TaskItem) -> Unit,
     onMarkDone: (TaskItem) -> Unit,
+    onToggleSubTask: (String, String) -> Unit,
+    onRescheduleOverdue: (TaskItem) -> Unit,
     onEditTask: (TaskItem) -> Unit,
     onStartPomodoro: (TaskItem) -> Unit,
     onDeleteTask: (TaskItem) -> Unit
 ) {
     val isToday = selectedDate == LocalDate.now()
+    val lunarLabel = VietnameseLunarCalendar.fromSolarDate(selectedDate).shortLabel()
 
     val todoCount = allDayTasks.count { it.statusOn(selectedDate) == TaskStatus.TODO }
     val upcomingCount = allDayTasks.count { it.statusOn(selectedDate) == TaskStatus.UPCOMING }
@@ -80,7 +84,6 @@ fun TodayScreen(
     val fixedCount = allDayTasks.count { it.scheduleType == ScheduleType.FIXED }
     val flexCount = allDayTasks.count { it.scheduleType == ScheduleType.FLEXIBLE }
 
-    // Điểm nhấn duy nhất: chọn 1 việc Sắp làm hoặc việc chưa làm đầu tiên trong ngày
     val heroTask = if (statusFilter == null) {
         allDayTasks.firstOrNull { it.statusOn(selectedDate) == TaskStatus.UPCOMING }
             ?: allDayTasks.firstOrNull { it.statusOn(selectedDate) == TaskStatus.TODO }
@@ -101,7 +104,6 @@ fun TodayScreen(
             .padding(horizontal = 18.dp),
         contentPadding = PaddingValues(top = 14.dp, bottom = 92.dp)
     ) {
-        // Phần đầu trang kiểu tạp chí: số ngày lớn bên trái + điều hướng gọn bên phải
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -117,14 +119,14 @@ fun TodayScreen(
                         style = MaterialTheme.typography.displaySmall,
                         color = InkWhite
                     )
-                    Column(modifier = Modifier.padding(bottom = 5.dp)) {
+                    Column(modifier = Modifier.padding(bottom = 4.dp)) {
                         Text(
-                            text = if (isToday) "Hôm nay" else shortDayName(selectedDate.dayOfWeek),
+                            text = if (isToday) "Hôm nay" else "${shortDayName(selectedDate.dayOfWeek)}, Tháng ${selectedDate.monthValue}",
                             style = MaterialTheme.typography.titleMedium,
                             color = InkWhite
                         )
                         Text(
-                            text = "${shortDayName(selectedDate.dayOfWeek)}, Tháng ${selectedDate.monthValue}",
+                            text = "${shortDayName(selectedDate.dayOfWeek)}, Th${selectedDate.monthValue}  |  $lunarLabel",
                             style = MaterialTheme.typography.bodySmall,
                             color = InkSecondary
                         )
@@ -155,7 +157,6 @@ fun TodayScreen(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Thanh tiến độ mảnh tối giản
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -167,7 +168,7 @@ fun TodayScreen(
                     color = InkSoftWhite
                 )
                 Text(
-                    text = "${totalMinutes / 60}g ${totalMinutes % 60}p  ($fixedCount cố định, $flexCount linh hoạt)",
+                    text = "${totalMinutes / 60}g ${totalMinutes % 60}p ($fixedCount cố định, $flexCount linh hoạt)",
                     style = MaterialTheme.typography.labelSmall,
                     color = InkSecondary
                 )
@@ -186,7 +187,6 @@ fun TodayScreen(
             Spacer(modifier = Modifier.height(16.dp))
         }
 
-        // Thẻ tiêu điểm duy nhất (trắng nền, chữ đen)
         if (heroTask != null) {
             item {
                 FocusHeroCard(
@@ -194,13 +194,13 @@ fun TodayScreen(
                     date = selectedDate,
                     onStartPomodoro = { onStartPomodoro(heroTask) },
                     onMarkDone = { onMarkDone(heroTask) },
+                    onReschedule = { onRescheduleOverdue(heroTask) },
                     onEdit = { onEditTask(heroTask) }
                 )
                 Spacer(modifier = Modifier.height(16.dp))
             }
         }
 
-        // Thanh hành động nhanh + bộ lọc trạng thái dạng pill tối giản
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -284,7 +284,6 @@ fun TodayScreen(
             Spacer(modifier = Modifier.height(4.dp))
         }
 
-        // Trục thời gian công việc
         if (filteredTasks.isEmpty()) {
             item {
                 Column(
@@ -300,7 +299,7 @@ fun TodayScreen(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Chạm nút + để thêm việc hoặc mở AI Ghi chú để chia giờ tự động.",
+                        text = "Chạm nút + để thêm việc hoặc mở Ghi chú để nói/nhập chia giờ tự động.",
                         style = MaterialTheme.typography.bodySmall,
                         color = InkMuted
                     )
@@ -315,6 +314,8 @@ fun TodayScreen(
                     onEdit = { onEditTask(task) },
                     onStartPomodoro = { onStartPomodoro(task) },
                     onDelete = { onDeleteTask(task) },
+                    onToggleSubTask = { subId -> onToggleSubTask(task.id, subId) },
+                    onRescheduleOverdue = { onRescheduleOverdue(task) },
                     isLast = index == filteredTasks.lastIndex
                 )
             }

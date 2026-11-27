@@ -37,11 +37,11 @@ import com.lichviec.app.data.ScheduleType
 import com.lichviec.app.data.TaskItem
 import com.lichviec.app.data.TaskStatus
 import com.lichviec.app.data.shortDayName
+import com.lichviec.app.domain.VietnameseLunarCalendar
 import com.lichviec.app.ui.components.TaskCard
 import com.lichviec.app.ui.theme.CanvasBlack
 import com.lichviec.app.ui.theme.InkMuted
 import com.lichviec.app.ui.theme.InkSecondary
-import com.lichviec.app.ui.theme.InkSoftWhite
 import com.lichviec.app.ui.theme.InkWhite
 import com.lichviec.app.ui.theme.RuleGray
 import com.lichviec.app.ui.theme.RuleStrong
@@ -56,6 +56,7 @@ fun WeekScreen(
     tasksProvider: (LocalDate) -> List<TaskItem>,
     onSelectDate: (LocalDate) -> Unit,
     onCycleStatus: (TaskItem, LocalDate) -> Unit,
+    onToggleSubTask: (String, String) -> Unit,
     onEditTask: (TaskItem) -> Unit,
     onStartPomodoro: (TaskItem) -> Unit,
     onDeleteTask: (TaskItem) -> Unit
@@ -63,6 +64,7 @@ fun WeekScreen(
     val shortFmt = DateTimeFormatter.ofPattern("dd/MM")
     val weekStart = weekDates.firstOrNull() ?: selectedDate
     val weekEnd = weekDates.lastOrNull() ?: selectedDate
+    val selectedLunar = VietnameseLunarCalendar.fromSolarDate(selectedDate).shortLabel()
 
     var weekTotalTasks = 0
     var weekDoneTasks = 0
@@ -116,7 +118,6 @@ fun WeekScreen(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Thanh 7 ngày trong tuần gọn gàng với chấm mật độ việc
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(5.dp)
@@ -179,7 +180,6 @@ fun WeekScreen(
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // Hàng chỉ số tuần phân cách bằng đường kẻ mảnh (không hộp nặng)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -200,11 +200,18 @@ fun WeekScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = "${shortDayName(selectedDate.dayOfWeek)}, ${selectedDate.format(shortFmt)}",
-                style = MaterialTheme.typography.titleMedium,
-                color = InkWhite
-            )
+            Column {
+                Text(
+                    text = "${shortDayName(selectedDate.dayOfWeek)}, ${selectedDate.format(shortFmt)}",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = InkWhite
+                )
+                Text(
+                    text = selectedLunar,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = InkSecondary
+                )
+            }
             Text(
                 text = "${selectedTasks.size} việc",
                 style = MaterialTheme.typography.labelMedium,
@@ -237,6 +244,7 @@ fun WeekScreen(
                         onEdit = { onEditTask(task) },
                         onStartPomodoro = { onStartPomodoro(task) },
                         onDelete = { onDeleteTask(task) },
+                        onToggleSubTask = { subId -> onToggleSubTask(task.id, subId) },
                         isLast = index == selectedTasks.lastIndex
                     )
                 }

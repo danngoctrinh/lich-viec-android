@@ -1,5 +1,6 @@
 package com.lichviec.app.data
 
+import com.lichviec.app.domain.VietnameseLunarCalendar
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.util.UUID
@@ -24,7 +25,9 @@ enum class ScheduleType(val label: String) {
 enum class RepeatType(val label: String) {
     NONE("1 lần"),
     DAILY("Mỗi ngày"),
-    WEEKLY_DAYS("Theo thứ")
+    WEEKLY_DAYS("Theo thứ"),
+    LUNAR_MONTHLY("Âm lịch tháng"),
+    LUNAR_YEARLY("Âm lịch năm")
 }
 
 enum class TimePreference(val label: String, val startMinute: Int, val endMinute: Int) {
@@ -39,6 +42,12 @@ enum class TaskPriority(val label: String, val weight: Int) {
     MEDIUM("Trung bình", 2),
     LOW("Thấp", 1)
 }
+
+data class SubTask(
+    val id: String = UUID.randomUUID().toString(),
+    val title: String,
+    val done: Boolean = false
+)
 
 data class TaskItem(
     val id: String = UUID.randomUUID().toString(),
@@ -55,7 +64,8 @@ data class TaskItem(
     val repeatDays: Set<Int> = emptySet(),
     val statusByDate: Map<String, TaskStatus> = emptyMap(),
     val reminderEnabled: Boolean = true,
-    val category: String = "Chung"
+    val category: String = "Chung",
+    val subtasks: List<SubTask> = emptyList()
 ) {
     fun appliesToDate(targetDate: LocalDate): Boolean {
         val startDate = runCatching { LocalDate.parse(date) }.getOrDefault(LocalDate.now())
@@ -63,7 +73,20 @@ data class TaskItem(
             RepeatType.NONE -> date == targetDate.toString()
             RepeatType.DAILY -> !targetDate.isBefore(startDate)
             RepeatType.WEEKLY_DAYS -> {
-                !targetDate.isBefore(startDate) && repeatDays.contains(targetDate.dayOfWeek.value)
+                val effectiveDays = repeatDays.ifEmpty { setOf(startDate.dayOfWeek.value) }
+                !targetDate.isBefore(startDate) && effectiveDays.contains(targetDate.dayOfWeek.value)
+            }
+            RepeatType.LUNAR_MONTHLY -> {
+                if (targetDate.isBefore(startDate)) return false
+                val startLunar = VietnameseLunarCalendar.fromSolarDate(startDate)
+                val targetLunar = VietnameseLunarCalendar.fromSolarDate(targetDate)
+                targetLunar.day == startLunar.day
+            }
+            RepeatType.LUNAR_YEARLY -> {
+                if (targetDate.isBefore(startDate)) return false
+                val startLunar = VietnameseLunarCalendar.fromSolarDate(startDate)
+                val targetLunar = VietnameseLunarCalendar.fromSolarDate(targetDate)
+                targetLunar.day == startLunar.day && targetLunar.month == startLunar.month && !targetLunar.isLeapMonth
             }
         }
     }
@@ -97,11 +120,14 @@ data class TaskItem(
 
 data class AppSettings(
     val geminiApiKey: String = "",
+    val geminiModel: String = "gemini-3.8-flash",
     val workStartMinute: Int = 7 * 60,
     val workEndMinute: Int = 22 * 60 + 30,
     val breakMinutes: Int = 10,
     val reminderBeforeMinutes: Int = 10,
-    val lockScreenSummaryEnabled: Boolean = true
+    val lockScreenSummaryEnabled: Boolean = true,
+    val hideLockScreenDetails: Boolean = false,
+    val avoidDeviceCalendarEvents: Boolean = false
 )
 
 data class AiParsedTaskDraft(
@@ -118,25 +144,35 @@ data class AiParsedTaskDraft(
     val repeatType: RepeatType = RepeatType.NONE,
     val repeatDays: Set<Int> = emptySet(),
     val category: String = "Chung",
+    val subtasks: List<SubTask> = emptyList(),
     val selected: Boolean = true
 ) {
-    fun toTaskItem(): TaskItem = TaskItem(
-        id = id,
-        title = title.trim(),
-        note = note.trim(),
-        date = date,
-        scheduleType = scheduleType,
-        startMinute = startMinute,
-        endMinute = endMinute,
-        durationMinutes = durationMinutes.coerceAtLeast(10),
-        timePreference = timePreference,
-        priority = priority,
-        repeatType = repeatType,
-        repeatDays = repeatDays,
-        statusByDate = mapOf(date to TaskStatus.TODO),
-        reminderEnabled = true,
-        category = category.ifBlank { "Chung" }
-    )
+    fun toTaskItem(): TaskItem {
+        val safeDate = runCatching { LocalDate.parse(date) }.getOrDefault(LocalDate.now())
+        val normalizedDays = if (repeatType == RepeatType.WEEKLY_DAYS && repeatDays.isEmpty()) {
+            setOf(safeDate.dayOfWeek.value)
+        } else {
+            repeatDays
+        }
+        return TaskItem(
+            id = id,
+            title = title.trim(),
+            note = note.trim(),
+            date = safeDate.toString(),
+            scheduleType = scheduleType,
+            startMinute = startMinute,
+            endMinute = endMinute,
+            durationMinutes = durationMinutes.coerceAtLeast(10),
+            timePreference = timePreference,
+            priority = priority,
+            repeatType = repeatType,
+            repeatDays = normalizedDays,
+            statusByDate = mapOf(safeDate.toString() to TaskStatus.TODO),
+            reminderEnabled = true,
+            category = category.ifBlank { "Chung" },
+            subtasks = subtasks
+        )
+    }
 }
 
 fun formatMinute(totalMinutes: Int): String {

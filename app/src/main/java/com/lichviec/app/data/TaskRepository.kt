@@ -4,6 +4,14 @@ import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.util.UUID
+
+data class LoadTasksResult(
+    val tasks: List<TaskItem>,
+    val fileExisted: Boolean,
+    val wasCorrupted: Boolean,
+    val corruptBackupPath: String? = null
+)
 
 class TaskRepository(private val context: Context) {
 
@@ -12,13 +20,28 @@ class TaskRepository(private val context: Context) {
 
     private val prefs = context.getSharedPreferences("lichviec_settings", Context.MODE_PRIVATE)
 
-    fun loadTasks(): List<TaskItem> {
-        if (!tasksFile.exists()) return emptyList()
-        return runCatching {
+    fun loadTasksSafe(): LoadTasksResult {
+        if (!tasksFile.exists()) {
+            return LoadTasksResult(tasks = emptyList(), fileExisted = false, wasCorrupted = false)
+        }
+        return try {
             val raw = tasksFile.readText(Charsets.UTF_8)
-            parseTasksJson(raw)
-        }.getOrDefault(emptyList())
+            val parsed = parseTasksJson(raw)
+            LoadTasksResult(tasks = parsed, fileExisted = true, wasCorrupted = false)
+        } catch (_: Exception) {
+            val backupName = "tasks_db.corrupt.${System.currentTimeMillis()}.json"
+            val backupFile = File(context.filesDir, backupName)
+            runCatching { tasksFile.copyTo(backupFile, overwrite = true) }
+            LoadTasksResult(
+                tasks = emptyList(),
+                fileExisted = true,
+                wasCorrupted = true,
+                corruptBackupPath = backupFile.name
+            )
+        }
     }
+
+    fun loadTasks(): List<TaskItem> = loadTasksSafe().tasks
 
     fun saveTasks(tasks: List<TaskItem>) {
         val json = serializeTasksJson(tasks)
@@ -45,22 +68,28 @@ class TaskRepository(private val context: Context) {
     fun loadSettings(): AppSettings {
         return AppSettings(
             geminiApiKey = prefs.getString("gemini_api_key", "") ?: "",
+            geminiModel = prefs.getString("gemini_model", "gemini-3.8-flash") ?: "gemini-3.8-flash",
             workStartMinute = prefs.getInt("work_start_minute", 7 * 60),
             workEndMinute = prefs.getInt("work_end_minute", 22 * 60 + 30),
             breakMinutes = prefs.getInt("break_minutes", 10),
             reminderBeforeMinutes = prefs.getInt("reminder_before_minutes", 10),
-            lockScreenSummaryEnabled = prefs.getBoolean("lock_screen_summary_enabled", true)
+            lockScreenSummaryEnabled = prefs.getBoolean("lock_screen_summary_enabled", true),
+            hideLockScreenDetails = prefs.getBoolean("hide_lock_screen_details", false),
+            avoidDeviceCalendarEvents = prefs.getBoolean("avoid_device_calendar_events", false)
         )
     }
 
     fun saveSettings(settings: AppSettings) {
         prefs.edit()
             .putString("gemini_api_key", settings.geminiApiKey.trim())
+            .putString("gemini_model", settings.geminiModel.trim().ifBlank { "gemini-3.8-flash" })
             .putInt("work_start_minute", settings.workStartMinute)
             .putInt("work_end_minute", settings.workEndMinute)
             .putInt("break_minutes", settings.breakMinutes)
             .putInt("reminder_before_minutes", settings.reminderBeforeMinutes)
             .putBoolean("lock_screen_summary_enabled", settings.lockScreenSummaryEnabled)
+            .putBoolean("hide_lock_screen_details", settings.hideLockScreenDetails)
+            .putBoolean("avoid_device_calendar_events", settings.avoidDeviceCalendarEvents)
             .apply()
     }
 
@@ -91,6 +120,18 @@ class TaskRepository(private val context: Context) {
             obj.put("statusByDate", statusObj)
             obj.put("reminderEnabled", task.reminderEnabled)
             obj.put("category", task.category)
+
+            val subArr = JSONArray()
+            task.subtasks.forEach { st ->
+                subArr.put(
+                    JSONObject().apply {
+                        put("id", st.id)
+                        put("title", st.title)
+                        put("done", st.done)
+                    }
+                )
+            }
+            obj.put("subtasks", subArr)
             arr.put(obj)
         }
         return arr.toString(2)
@@ -105,7 +146,8 @@ class TaskRepository(private val context: Context) {
             val daysArr = obj.optJSONArray("repeatDays")
             if (daysArr != null) {
                 for (j in 0 until daysArr.length()) {
-                    days.add(daysArr.getInt(j))
+                    val d = daysArr.optInt(j, -1)
+                    if (d in 1..7) days.add(d)
                 }
             }
             val statusMap = mutableMapOf<String, TaskStatus>()
@@ -118,12 +160,29 @@ class TaskRepository(private val context: Context) {
                     statusMap[key] = runCatching { TaskStatus.valueOf(stName) }.getOrDefault(TaskStatus.TODO)
                 }
             }
+            val subtasks = mutableListOf<SubTask>()
+            val subArr = obj.optJSONArray("subtasks")
+            if (subArr != null) {
+                for (j in 0 until subArr.length()) {
+                    val sObj = subArr.optJSONObject(j) ?: continue
+                    val sTitle = sObj.optString("title").trim()
+                    if (sTitle.isNotEmpty()) {
+                        subtasks.add(
+                            SubTask(
+                                id = sObj.optString("id").ifBlank { UUID.randomUUID().toString() },
+                                title = sTitle,
+                                done = sObj.optBoolean("done", false)
+                            )
+                        )
+                    }
+                }
+            }
             val startMin = if (obj.isNull("startMinute")) null else obj.optInt("startMinute")
             val endMin = if (obj.isNull("endMinute")) null else obj.optInt("endMinute")
 
             result.add(
                 TaskItem(
-                    id = obj.optString("id"),
+                    id = obj.optString("id").ifBlank { UUID.randomUUID().toString() },
                     title = obj.optString("title"),
                     note = obj.optString("note", ""),
                     date = obj.optString("date"),
@@ -141,7 +200,8 @@ class TaskRepository(private val context: Context) {
                     repeatDays = days,
                     statusByDate = statusMap,
                     reminderEnabled = obj.optBoolean("reminderEnabled", true),
-                    category = obj.optString("category", "Chung")
+                    category = obj.optString("category", "Chung"),
+                    subtasks = subtasks
                 )
             )
         }

@@ -25,6 +25,7 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.Timer
+import androidx.compose.material.icons.rounded.Update
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -40,7 +41,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.lichviec.app.data.RepeatType
 import com.lichviec.app.data.ScheduleType
 import com.lichviec.app.data.TaskItem
@@ -56,10 +56,19 @@ import com.lichviec.app.ui.theme.RuleGray
 import com.lichviec.app.ui.theme.RuleStrong
 import com.lichviec.app.ui.theme.SurfaceMuted
 import java.time.LocalDate
+import java.time.LocalTime
+
+private fun isTaskOverdueToday(task: TaskItem, date: LocalDate): Boolean {
+    if (date != LocalDate.now()) return false
+    if (task.statusOn(date) == TaskStatus.DONE) return false
+    val endMin = task.endMinute ?: task.startMinute ?: return false
+    val nowMin = LocalTime.now().let { it.hour * 60 + it.minute }
+    return endMin < nowMin
+}
 
 /**
- * Một điểm nhấn duy nhất (Hero Focus Card) nền trắng tinh khiết, chữ đen tuyền
- * cho công việc quan trọng / sắp làm ngay lúc này.
+ * Thẻ tiêu điểm nền trắng chữ đen cho việc sắp làm ngay,
+ * tự hiện nút "Dời khe trống" khi việc đã trễ giờ.
  */
 @Composable
 fun FocusHeroCard(
@@ -67,10 +76,12 @@ fun FocusHeroCard(
     date: LocalDate,
     onStartPomodoro: () -> Unit,
     onMarkDone: () -> Unit,
+    onReschedule: () -> Unit,
     onEdit: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val status = task.statusOn(date)
+    val overdue = isTaskOverdueToday(task, date)
     val timeDisplay = if (task.startMinute != null && task.endMinute != null) {
         "${formatMinute(task.startMinute)} – ${formatMinute(task.endMinute)}"
     } else {
@@ -91,9 +102,15 @@ fun FocusHeroCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = if (status == TaskStatus.UPCOMING) "Sắp làm ngay" else "Việc tiếp theo",
-                style = MaterialTheme.typography.labelLarge,
-                color = Color(0xFF52525B)
+                text = when {
+                    overdue -> "Đã quá giờ"
+                    status == TaskStatus.UPCOMING -> "Sắp làm ngay"
+                    else -> "Việc tiếp theo"
+                },
+                style = MaterialTheme.typography.labelLarge.copy(
+                    fontWeight = if (overdue) FontWeight.Bold else FontWeight.Medium
+                ),
+                color = if (overdue) CanvasBlack else Color(0xFF52525B)
             )
             Text(
                 text = timeDisplay,
@@ -132,20 +149,38 @@ fun FocusHeroCard(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(CanvasBlack)
-                    .clickable { onStartPomodoro() }
-                    .padding(vertical = 10.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "Tập trung ngay",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = InkWhite
-                )
+            if (overdue) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(CanvasBlack)
+                        .clickable { onReschedule() }
+                        .padding(vertical = 10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "Dời khe trống",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = InkWhite
+                    )
+                }
+            } else {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(CanvasBlack)
+                        .clickable { onStartPomodoro() }
+                        .padding(vertical = 10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "Tập trung ngay",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = InkWhite
+                    )
+                }
             }
 
             Box(
@@ -167,10 +202,8 @@ fun FocusHeroCard(
 }
 
 /**
- * Hàng công việc theo bố cục trục thời gian (Timeline) tối giản, bỏ khung thẻ lặp lại.
- * - Cột trái: Giờ bắt đầu / kết thúc (hoặc thời lượng) dùng số thẳng hàng.
- * - Trục giữa: Đường kẻ dọc liên tục, nút trạng thái (vuông đặc = cố định, tròn = linh hoạt).
- * - Cột phải: Nội dung sạch, thoáng, tương phản rõ theo trạng thái.
+ * Hàng công việc trên trục thời gian dọc, hỗ trợ checklist việc con tick trực tiếp
+ * và nút dời khe trống khi bị trễ giờ.
  */
 @Composable
 fun TaskCard(
@@ -180,6 +213,8 @@ fun TaskCard(
     onEdit: () -> Unit,
     onStartPomodoro: () -> Unit,
     onDelete: () -> Unit,
+    onToggleSubTask: ((String) -> Unit)? = null,
+    onRescheduleOverdue: (() -> Unit)? = null,
     isLast: Boolean = false,
     modifier: Modifier = Modifier
 ) {
@@ -187,6 +222,7 @@ fun TaskCard(
     val isDone = status == TaskStatus.DONE
     val isUpcoming = status == TaskStatus.UPCOMING
     val isFixed = task.scheduleType == ScheduleType.FIXED
+    val overdue = isTaskOverdueToday(task, date)
 
     val titleColor by animateColorAsState(
         targetValue = when {
@@ -210,7 +246,6 @@ fun TaskCard(
                 .padding(vertical = 11.dp),
             verticalAlignment = Alignment.Top
         ) {
-            // Cột thời gian bên trái
             Column(
                 modifier = Modifier.width(54.dp),
                 horizontalAlignment = Alignment.End
@@ -245,7 +280,6 @@ fun TaskCard(
                 }
             }
 
-            // Trục thời gian dọc + nút đổi trạng thái 1 chạm
             Column(
                 modifier = Modifier
                     .padding(horizontal = 12.dp)
@@ -305,24 +339,17 @@ fun TaskCard(
                 }
             }
 
-            // Nội dung công việc bên phải
             Column(modifier = Modifier.weight(1f)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text(
-                        text = task.title,
-                        style = MaterialTheme.typography.titleSmall.copy(
-                            fontWeight = if (isUpcoming) FontWeight.SemiBold else FontWeight.Medium,
-                            textDecoration = if (isDone) TextDecoration.LineThrough else TextDecoration.None
-                        ),
-                        color = titleColor,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
+                Text(
+                    text = task.title,
+                    style = MaterialTheme.typography.titleSmall.copy(
+                        fontWeight = if (isUpcoming) FontWeight.SemiBold else FontWeight.Medium,
+                        textDecoration = if (isDone) TextDecoration.LineThrough else TextDecoration.None
+                    ),
+                    color = titleColor,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
 
                 if (task.note.isNotBlank() && !isDone) {
                     Spacer(modifier = Modifier.height(2.dp))
@@ -333,6 +360,50 @@ fun TaskCard(
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
+                }
+
+                // Danh sách việc con (Checklist) tick trực tiếp
+                if (task.subtasks.isNotEmpty() && !isDone) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        task.subtasks.forEach { st ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onToggleSubTask?.invoke(st.id) }
+                                    .padding(vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(7.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(14.dp)
+                                        .clip(RoundedCornerShape(3.dp))
+                                        .background(if (st.done) InkWhite else CanvasBlack)
+                                        .border(1.dp, if (st.done) InkWhite else RuleStrong, RoundedCornerShape(3.dp)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (st.done) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Check,
+                                            contentDescription = null,
+                                            tint = CanvasBlack,
+                                            modifier = Modifier.size(10.dp)
+                                        )
+                                    }
+                                }
+                                Text(
+                                    text = st.title,
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        textDecoration = if (st.done) TextDecoration.LineThrough else TextDecoration.None
+                                    ),
+                                    color = if (st.done) InkMuted else InkSoftWhite,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(6.dp))
@@ -360,7 +431,13 @@ fun TaskCard(
                         )
                     }
 
-                    if (status == TaskStatus.UPCOMING) {
+                    if (overdue) {
+                        Text(
+                            text = "Trễ giờ",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                            color = InkWhite
+                        )
+                    } else if (status == TaskStatus.UPCOMING) {
                         Text(
                             text = "Sắp làm",
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
@@ -397,8 +474,20 @@ fun TaskCard(
                 }
             }
 
-            // Nút thao tác gọn bên phải
             Row(verticalAlignment = Alignment.CenterVertically) {
+                if (overdue && onRescheduleOverdue != null) {
+                    IconButton(
+                        onClick = onRescheduleOverdue,
+                        modifier = Modifier.size(30.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Update,
+                            contentDescription = "Dời sang khe trống",
+                            tint = InkWhite,
+                            modifier = Modifier.size(17.dp)
+                        )
+                    }
+                }
                 if (!isDone) {
                     IconButton(
                         onClick = onStartPomodoro,

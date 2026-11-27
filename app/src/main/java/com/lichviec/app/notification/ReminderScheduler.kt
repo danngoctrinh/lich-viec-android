@@ -4,6 +4,7 @@ import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import com.lichviec.app.data.TaskItem
 import com.lichviec.app.data.TaskStatus
 import java.time.LocalDate
@@ -13,6 +14,15 @@ import java.time.ZoneId
 
 object ReminderScheduler {
 
+    fun canScheduleExact(context: Context): Boolean {
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            alarmManager.canScheduleExactAlarms()
+        } else {
+            true
+        }
+    }
+
     fun scheduleForDate(
         context: Context,
         tasks: List<TaskItem>,
@@ -21,6 +31,7 @@ object ReminderScheduler {
     ) {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val nowMillis = System.currentTimeMillis()
+        val allowExact = canScheduleExact(context)
 
         tasks.filter { it.appliesToDate(date) }.forEach { task ->
             val requestCode = (task.id + "_" + date.toString()).hashCode()
@@ -51,11 +62,19 @@ object ReminderScheduler {
 
             if (triggerMillis > nowMillis) {
                 runCatching {
-                    alarmManager.setAndAllowWhileIdle(
-                        AlarmManager.RTC_WAKEUP,
-                        triggerMillis,
-                        pendingIntent
-                    )
+                    if (allowExact) {
+                        alarmManager.setExactAndAllowWhileIdle(
+                            AlarmManager.RTC_WAKEUP,
+                            triggerMillis,
+                            pendingIntent
+                        )
+                    } else {
+                        alarmManager.setAndAllowWhileIdle(
+                            AlarmManager.RTC_WAKEUP,
+                            triggerMillis,
+                            pendingIntent
+                        )
+                    }
                 }
             }
         }

@@ -15,7 +15,7 @@ import java.time.LocalDate
 
 /**
  * Hiển thị thông báo lịch hôm nay ngay trên màn hình khóa (VISIBILITY_PUBLIC)
- * kèm nút mở nhanh AI Ghi chú hoặc Thêm việc.
+ * kèm tùy chọn ẩn chi tiết tiêu đề công việc để bảo vệ quyền riêng tư.
  */
 object LockScreenNotificationHelper {
 
@@ -25,7 +25,8 @@ object LockScreenNotificationHelper {
     fun updateLockScreenSummary(
         context: Context,
         allTasks: List<TaskItem>,
-        enabled: Boolean
+        enabled: Boolean,
+        hideDetails: Boolean = false
     ) {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (!enabled) {
@@ -56,22 +57,29 @@ object LockScreenNotificationHelper {
         val pending = todayTasks.filter { it.statusOn(today) != TaskStatus.DONE }
 
         val title = if (pending.isEmpty()) {
-            "Lịch hôm nay • Xong $doneCount/${todayTasks.size}"
+            "Lịch hôm nay ($doneCount/${todayTasks.size} xong)"
         } else {
             "Còn ${pending.size} việc hôm nay ($doneCount/${todayTasks.size} xong)"
         }
 
-        val firstTaskText = pending.firstOrNull()?.let { task ->
-            val timeStr = if (task.startMinute != null) "${formatMinute(task.startMinute)} • " else ""
-            "Tiếp theo: $timeStr${task.title}"
-        } ?: "Chạm để thêm việc mới hoặc ghi chú AI"
+        val firstTaskText = when {
+            hideDetails -> "Nội dung chi tiết đang được ẩn (chạm để mở ứng dụng)"
+            pending.isEmpty() -> "Chạm để thêm việc mới hoặc ghi chú AI"
+            else -> pending.first().let { task ->
+                val timeStr = if (task.startMinute != null) "${formatMinute(task.startMinute)} " else ""
+                "Tiếp theo: $timeStr${task.title}"
+            }
+        }
 
         val inboxStyle = NotificationCompat.InboxStyle().setBigContentTitle(title)
-        if (pending.isEmpty()) {
+        if (hideDetails) {
+            inboxStyle.addLine("Đã hoàn thành $doneCount / ${todayTasks.size} công việc.")
+            inboxStyle.addLine("Còn ${pending.size} việc chưa xong (đang bật chế độ riêng tư).")
+        } else if (pending.isEmpty()) {
             inboxStyle.addLine("Đã hoàn thành hết công việc hôm nay.")
         } else {
             pending.take(5).forEach { task ->
-                val timeStr = if (task.startMinute != null) "${formatMinute(task.startMinute)} " else "• "
+                val timeStr = if (task.startMinute != null) "${formatMinute(task.startMinute)} " else ""
                 val tag = if (task.statusOn(today) == TaskStatus.UPCOMING) "[Sắp làm] " else ""
                 inboxStyle.addLine("$timeStr$tag${task.title}")
             }

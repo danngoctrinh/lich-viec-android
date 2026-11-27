@@ -152,6 +152,8 @@ fun MainApp(
                     onCarryOverYesterday = { viewModel.carryOverUnfinishedFromYesterday() },
                     onCycleStatus = { viewModel.cycleTaskStatus(it.id, state.selectedDate) },
                     onMarkDone = { viewModel.setTaskStatus(it.id, state.selectedDate, TaskStatus.DONE) },
+                    onToggleSubTask = { taskId, subId -> viewModel.toggleSubTask(taskId, subId) },
+                    onRescheduleOverdue = { viewModel.rescheduleOverdueTask(it.id, state.selectedDate) },
                     onEditTask = {
                         editingTask = it
                         showAddDialog = true
@@ -166,6 +168,7 @@ fun MainApp(
                     tasksProvider = { viewModel.tasksForDate(it) },
                     onSelectDate = { viewModel.selectDate(it) },
                     onCycleStatus = { task, date -> viewModel.cycleTaskStatus(task.id, date) },
+                    onToggleSubTask = { taskId, subId -> viewModel.toggleSubTask(taskId, subId) },
                     onEditTask = {
                         editingTask = it
                         showAddDialog = true
@@ -182,6 +185,8 @@ fun MainApp(
                     statusMessage = state.aiStatusMessage,
                     hasApiKey = state.settings.geminiApiKey.isNotBlank(),
                     onInputChange = { viewModel.updateAiInput(it) },
+                    onVoiceResult = { spoken -> viewModel.appendVoiceTranscript(spoken) },
+                    onVoiceUnavailable = { viewModel.showToast("Thiết bị chưa cài dịch vụ nhận diện giọng nói") },
                     onAnalyze = { viewModel.analyzeNoteWithAi(state.selectedDate) },
                     onToggleSelect = { viewModel.toggleDraftSelection(it) },
                     onToggleScheduleType = { viewModel.toggleDraftScheduleType(it) },
@@ -196,9 +201,13 @@ fun MainApp(
                     tasksProvider = { viewModel.tasksForDate(it) },
                     dailyStreak = viewModel.computeDailyHabitStreak(),
                     settings = state.settings,
+                    weeklyReviewText = state.weeklyReviewText,
+                    isWeeklyReviewLoading = state.isWeeklyReviewLoading,
+                    onGenerateWeeklyReview = { viewModel.generateWeeklyReview() },
                     onSaveSettings = { viewModel.saveSettings(it) },
                     onExportJson = { viewModel.exportBackupJson() },
-                    onImportJson = { viewModel.importBackupJson(it) }
+                    onImportJson = { viewModel.importBackupJson(it) },
+                    onShowMessage = { viewModel.showToast(it) }
                 )
             }
         }
